@@ -1,5 +1,6 @@
 # configger
 
+[![codecov](https://codecov.io/gh/andrewheberle/configger/graph/badge.svg?token=2Dmqn2LEKR)](https://codecov.io/gh/andrewheberle/configger)
 [![GoDoc](https://pkg.go.dev/badge/github.com/andrewheberle/configger?utm_source=godoc)](https://pkg.go.dev/github.com/andrewheberle/configger)
 
 This Go package handles loading of configuration from the following sources:
