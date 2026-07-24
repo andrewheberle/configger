@@ -44,7 +44,7 @@ type Config interface {
 // or the default of [DefaultConfigKeyName] being set in the provided
 // [pflag.FlagSet]. Loading of a configuration file can be disabled via
 // [WithoutConfigurationFile], via [WithConfigKeyName] as a blank string
-// or loading will be skipped if the value from the confif key name is blank
+// or loading will be skipped if the value from the config key name is blank
 // or unset.
 //
 // If [WithEnvPrefix] is provided then enviroment variables prefixed with
