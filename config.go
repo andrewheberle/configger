@@ -46,7 +46,9 @@ type Config interface {
 // [pflag.FlagSet]. Loading of a configuration file can be disabled via
 // [WithoutConfigurationFile], via [WithConfigKeyName] as a blank string
 // or loading will be skipped if the value from the config key name is blank
-// or unset.
+// or unset. Loading is also skipped if the [pflag.FlagSet] has no flag for
+// [DefaultConfigKeyName], however a key given via [WithConfigKeyName] must
+// have a flag or an error is returned.
 //
 // If [WithEnvPrefix] is provided then environment variables can set any flag
 // not given on the command line, including the flag naming the configuration
@@ -80,8 +82,9 @@ func LoadConfig(f *pflag.FlagSet, opts ...Option) (Config, error) {
 
 	k := koanf.New(".")
 
-	// load any config file (unless key is set to blank or disabled)
-	if config.key != "" && !config.disabled {
+	// load any config file (unless key is set to blank or disabled, or the
+	// default key was not explicitly requested and has no flag)
+	if config.key != "" && !config.disabled && (config.keyset || f.Lookup(config.key) != nil) {
 		if config, err := f.GetString(config.key); err != nil {
 			return nil, fmt.Errorf("error getting flag value: %w", err)
 		} else if config != "" {
@@ -147,16 +150,20 @@ func envName(prefix, flag string) string {
 type options struct {
 	envprefix string
 	key       string
+	keyset    bool
 	disabled  bool
 }
 
 // Option is used to modify the behaviour of [LoadConfig].
 type Option func(*options)
 
-// Sets a specific key name to lookup the configuration file name from.
+// Sets a specific key name to lookup the configuration file name from. Unlike
+// the default of [DefaultConfigKeyName], a key set this way must have a flag
+// in the [pflag.FlagSet] passed to [LoadConfig].
 func WithConfigKeyName(key string) Option {
 	return func(c *options) {
 		c.key = key
+		c.keyset = true
 	}
 }
 
