@@ -1,12 +1,13 @@
 package configger
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/knadh/koanf/parsers/yaml"
-	"github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
 	"github.com/knadh/koanf/v2"
@@ -47,8 +48,18 @@ type Config interface {
 // or loading will be skipped if the value from the config key name is blank
 // or unset.
 //
-// If [WithEnvPrefix] is provided then enviroment variables prefixed with
-// "PREFIX_" will be included in the configuration.
+// If [WithEnvPrefix] is provided then environment variables can set any flag
+// not given on the command line, including the flag naming the configuration
+// file. Each flag is set from the variable named "PREFIX_" followed by the
+// flag name upper-cased with "-" and "." replaced by "_", so "log-level" is
+// set by "PREFIX_LOG_LEVEL". Values are parsed by the flag itself, so slice
+// flags take comma separated values (quote an item to keep a comma in it).
+// Environment variables only ever set keys that have a flag.
+//
+// Flags set from environment variables are updated in the provided
+// [pflag.FlagSet], so they report as changed and hold the value in effect.
+// An environment variable value the flag rejects, or two flags sharing an
+// environment variable name, results in an error.
 func LoadConfig(f *pflag.FlagSet, opts ...Option) (Config, error) {
 	config := &options{
 		key: DefaultConfigKeyName,
@@ -56,6 +67,15 @@ func LoadConfig(f *pflag.FlagSet, opts ...Option) (Config, error) {
 
 	for _, o := range opts {
 		o(config)
+	}
+
+	// Apply env vars to flags (unless env prefix is blank). This happens
+	// first so an env var can select the config file, while flags set from
+	// env still override the config file as they are marked as changed.
+	if config.envprefix != "" {
+		if err := applyEnv(f, config.envprefix); err != nil {
+			return nil, fmt.Errorf("error reading env vars: %w", err)
+		}
 	}
 
 	k := koanf.New(".")
@@ -71,33 +91,57 @@ func LoadConfig(f *pflag.FlagSet, opts ...Option) (Config, error) {
 		}
 	}
 
-	// Load env vars (unless env prefix is blank)
-	if config.envprefix != "" {
-		prefix := fmt.Sprintf("%s_", config.envprefix)
-		if err := k.Load(env.Provider(".", env.Opt{
-			Prefix: prefix,
-			TransformFunc: func(k, v string) (string, any) {
-				// Transform the key.
-				k = strings.ReplaceAll(strings.ToLower(strings.TrimPrefix(k, prefix)), "_", ".")
-
-				// Transform values with commas into slices
-				if strings.Contains(v, ",") {
-					return k, strings.Split(v, ",")
-				}
-
-				return k, v
-			},
-		}), nil); err != nil {
-			return nil, fmt.Errorf("error reading env vars: %w", err)
-		}
-	}
-
 	// Load command line options
 	if err := k.Load(posflag.Provider(f, ".", k), nil); err != nil {
 		return nil, fmt.Errorf("error reading command line: %w", err)
 	}
 
 	return k, nil
+}
+
+// applyEnv sets each flag not given on the command line from its env name,
+// so the flag parses the value according to its own type.
+func applyEnv(f *pflag.FlagSet, prefix string) error {
+	var errs []error
+
+	// check no two flags share an env name before setting anything
+	names := make(map[string][]string)
+	f.VisitAll(func(flag *pflag.Flag) {
+		name := envName(prefix, flag.Name)
+		names[name] = append(names[name], flag.Name)
+	})
+	for name, flags := range names {
+		if len(flags) > 1 {
+			errs = append(errs, fmt.Errorf("flags %s share env name %s", strings.Join(flags, ", "), name))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	f.VisitAll(func(flag *pflag.Flag) {
+		if flag.Changed {
+			return
+		}
+
+		name := envName(prefix, flag.Name)
+		v, ok := os.LookupEnv(name)
+		if !ok {
+			return
+		}
+
+		if err := f.Set(flag.Name, v); err != nil {
+			errs = append(errs, fmt.Errorf("%s=%q: %w", name, v, err))
+		}
+	})
+
+	return errors.Join(errs...)
+}
+
+// envName returns the environment variable name for a flag, eg "log-level"
+// with a prefix of "APP" is "APP_LOG_LEVEL".
+func envName(prefix, flag string) string {
+	return prefix + "_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(flag))
 }
 
 type options struct {
@@ -123,7 +167,8 @@ func WithoutConfigurationFile() Option {
 	}
 }
 
-// Set the prefix for environment variable loading.
+// Set the prefix for environment variable loading. Environment variables
+// only set values for flags in the [pflag.FlagSet] passed to [LoadConfig].
 func WithEnvPrefix(prefix string) Option {
 	return func(c *options) {
 		// trim any undescore as we add it back later
