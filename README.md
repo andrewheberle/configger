@@ -20,6 +20,10 @@ this process, however this package is opinionated as follows:
   2. Configuration file
   3. Environment variables
   4. Command line flags
+* Environment variables (when an env prefix is set via `WithEnvPrefix`) can
+  only set values that have a command line flag. For example with a prefix of
+  `APP` the flag `log-level` is set by `APP_LOG_LEVEL`. Values are parsed by
+  the flag itself, and flags set this way are updated in the `pflag.FlagSet`.
 * The returned `configger.Config` does not provide access to the underlying
   `*koanf.Koanf` type and does not implement all of its functionality.
 
