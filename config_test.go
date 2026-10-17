@@ -58,7 +58,7 @@ func TestLoadConfigEnvNameClash(t *testing.T) {
 		t.Fatalf("failed to parse flags: %v", err)
 	}
 
-	_, err := configger.LoadConfig(f, configger.WithEnvPrefix("TEST"), configger.WithoutConfigurationFile())
+	_, err := configger.LoadConfig(f, configger.WithEnvPrefix("TEST"))
 	if err == nil {
 		t.Fatal("LoadConfig() succeeded unexpectedly")
 	}
@@ -67,6 +67,52 @@ func TestLoadConfigEnvNameClash(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("LoadConfig() error %q does not mention %q", err, want)
 		}
+	}
+}
+
+func TestLoadConfigMissingConfigFlag(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    []configger.Option
+		wantErr bool
+	}{
+		{
+			name: "default config key without flag skips config file",
+		},
+		{
+			name:    "explicit default config key without flag returns error",
+			opts:    []configger.Option{configger.WithConfigKeyName("config")},
+			wantErr: true,
+		},
+		{
+			name:    "custom config key without flag returns error",
+			opts:    []configger.Option{configger.WithConfigKeyName("otherconfig")},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := pflag.NewFlagSet("test", pflag.ContinueOnError)
+			f.String("foo", "default-foo", "foo value")
+			if err := f.Parse([]string{"--foo=flag-foo"}); err != nil {
+				t.Fatalf("failed to parse flags: %v", err)
+			}
+
+			got, gotErr := configger.LoadConfig(f, tt.opts...)
+			if gotErr != nil {
+				if !tt.wantErr {
+					t.Errorf("LoadConfig() failed: %v", gotErr)
+				}
+				return
+			}
+			if tt.wantErr {
+				t.Fatal("LoadConfig() succeeded unexpectedly")
+			}
+
+			if got := got.String("foo"); got != "flag-foo" {
+				t.Errorf("LoadConfig() key %q = %q, want %q", "foo", got, "flag-foo")
+			}
+		})
 	}
 }
 
